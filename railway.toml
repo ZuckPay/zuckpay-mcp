@@ -1,0 +1,16 @@
+# Deploy do serviço HTTP multi-tenant no Railway.
+# Variáveis a definir no dashboard do serviço:
+#   MCP_TRUST_PROXY=true            (Railway fica atrás de proxy — habilita X-Forwarded-For)
+#   MCP_RATE_LIMIT_PER_MINUTE=60    (opcional; padrão 60)
+# NUNCA definir ZUCKPAY_CLIENT_ID/SECRET aqui: no modo HTTP cada tenant
+# manda a própria credencial via Authorization: Basic.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

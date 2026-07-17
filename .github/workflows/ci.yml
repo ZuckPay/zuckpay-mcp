@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Formatação
+        run: npm run format
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Testes
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test do binário (deve falhar limpo sem credenciais)
+        run: |
+          set +e
+          output=$(node dist/index.js 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          test $code -eq 1
+          echo "$output" | grep -q "ZUCKPAY_CLIENT_ID"
+
+      - name: Auditoria de dependências
+        run: npm audit --audit-level=high
