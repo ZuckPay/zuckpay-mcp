@@ -1,6 +1,6 @@
 # zuckpay-mcp
 
-Servidor [MCP](https://modelcontextprotocol.io) oficial da **ZuckPay** — crie cobranças PIX, SPEI (México) e PayPal, e consulte transações direto do seu assistente de IA (Claude Code, Claude Desktop, Cursor e qualquer cliente MCP).
+Servidor [MCP](https://modelcontextprotocol.io) oficial da **ZuckPay** — crie cobranças PIX, SPEI (México) e PayPal, acompanhe vendas no cartão (Stripe e cartão nacional) e consulte transações e saldo direto do seu assistente de IA (Claude Code, Claude Desktop, Cursor e qualquer cliente MCP).
 
 - **Node puro** — funciona com `npx`/`node`, sem Bun nem build extra.
 - **Seguro por padrão** — credenciais só via variáveis de ambiente, máscara de segredos em toda saída, saque desabilitado por padrão, dados de cartão jamais trafegam pela IA.
@@ -15,9 +15,9 @@ Servidor [MCP](https://modelcontextprotocol.io) oficial da **ZuckPay** — crie 
 | `createSpeiCashin`     | Cria cobrança SPEI em MXN e retorna a CLABE de 18 dígitos (México)                                           |
 | `createPayPalOrder`    | Cria ordem PayPal em 25 moedas e retorna o link de aprovação                                                 |
 | `capturePayPalOrder`   | Captura a ordem depois que o pagador aprova                                                                  |
-| `getCardGateways`      | Lista as chaves públicas dos gateways de cartão (somente leitura)                                            |
+| `getCardGateways`      | Mostra os gateways de cartão da conta — Stripe (internacional) e cartão nacional (BRL) — com as chaves públicas |
 | `listTransactions`     | Lista as transações da conta com filtros (status, tipo, método, período) e paginação por cursor              |
-| `getBalance`           | Saldos da conta (disponível, bloqueado D+2, total) e limites de saque                                        |
+| `getBalance`           | Saldos da conta (disponível, bloqueado em liberação, total) e limites de saque                               |
 | `createPixWithdraw`    | ⚠️ Saque PIX — **só existe com `ZUCKPAY_ENABLE_WITHDRAW=true`** (veja [Segurança](#segurança))               |
 
 Extras: resource `zuckpay://docs/api` (referência da API + validação do webhook assinado) e prompt `criar-cobranca-pix`.
@@ -70,6 +70,22 @@ claude mcp add zuckpay \
 > "Qual o status da transação do pedido PEDIDO-4512?"
 
 > "Cria uma ordem PayPal de US$ 50 pro comprador Mike Ross, mike@email.com"
+
+> "Lista minhas vendas de cartão pagas neste mês e diz quanto ainda está em liberação"
+
+## Cartão: como o MCP se encaixa
+
+O MCP **acompanha** as vendas de cartão, mas **não cria** cobrança de cartão — e isso é proposital (veja [Segurança](#segurança)):
+
+| O que você quer fazer                       | Como fazer                                                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Cobrar no cartão                            | Checkout hospedado ou link de pagamento da ZuckPay — o dado do cartão nunca passa pela IA                          |
+| Ver os gateways de cartão da conta          | `getCardGateways` — Stripe (internacional) e cartão nacional (BRL), com as chaves públicas de tokenização          |
+| Conferir se uma venda de cartão foi paga    | `getTransactionStatus` com o `transactionId` ou o seu `external_id_client`                                         |
+| Listar as vendas de cartão de um período    | `listTransactions` com `payment_method: credit_card`                                                               |
+| Ver quanto de cartão ainda está em liberação | `getBalance` — o saldo bloqueado inclui vendas de cartão aguardando o prazo da conta (ex.: D+8); PIX libera em D+0 |
+
+**Por que o MCP não cobra cartão?** PCI DSS: número e CVV jamais devem trafegar pelo contexto de um LLM. A tokenização acontece no navegador do pagador, dentro do checkout hospedado — e o MCP entra depois, para consultar status, listar vendas e conferir o saldo.
 
 ## Segurança
 

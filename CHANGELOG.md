@@ -2,6 +2,23 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [0.2.1] - 2026-07-17
+
+### Corrigido
+
+- `getCardGateways`: o resumo textual agora interpreta o formato real de
+  `GET /v3/card/keys` (objeto com `stripe` e `nationalCard`) — antes dizia
+  "nenhum gateway configurado" mesmo com Stripe e cartão nacional ativos.
+  O formato legado em array segue suportado como fallback.
+- `getBalance`: o saldo bloqueado deixa de ser rotulado "liberação D+2" —
+  o prazo real varia por método (PIX D+0; cartão conforme a conta, ex. D+8).
+
+### Alterado
+
+- README: nova seção "Cartão: como o MCP se encaixa" explicando o fluxo de
+  recebimento no cartão (Stripe internacional + cartão nacional BRL) e por
+  que a cobrança direta de cartão fica fora do MCP (PCI DSS).
+
 ## [0.2.0] - 2026-07-17
 
 ### Adicionado
