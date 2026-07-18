@@ -1,4 +1,27 @@
-# zuckpay-mcp
+<div align="center">
+  <a href="https://www.zuckpay.com.br">
+    <img src="https://www.zuckpay.com.br/images/zucklogotop.png" alt="Logo da ZuckPay" width="120">
+  </a>
+
+  <h1>zuckpay-mcp</h1>
+
+  <p><strong>Servidor MCP oficial da ZuckPay</strong> — pagamentos PIX, SPEI e PayPal direto do seu assistente de IA</p>
+
+  <p>
+    <a href="https://www.npmjs.com/package/zuckpay-mcp"><img src="https://img.shields.io/npm/v/zuckpay-mcp?color=cb3837&label=npm" alt="Versão no npm"></a>
+    <a href="https://github.com/ZuckPay/zuckpay-mcp/actions/workflows/ci.yml"><img src="https://github.com/ZuckPay/zuckpay-mcp/actions/workflows/ci.yml/badge.svg" alt="Status do CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT-green" alt="Licença MIT"></a>
+    <img src="https://img.shields.io/badge/node-%E2%89%A518.17-brightgreen" alt="Node 18.17 ou superior">
+  </p>
+
+  <p>
+    <a href="https://www.zuckpay.com.br">Site</a> ·
+    <a href="https://www.zuckpay.com.br/conta/dev/">Documentação da API</a> ·
+    <a href="#modo-http-hospedado-multi-tenant">MCP hospedado</a>
+  </p>
+</div>
+
+---
 
 Servidor [MCP](https://modelcontextprotocol.io) oficial da **ZuckPay** — crie cobranças PIX, SPEI (México) e PayPal, acompanhe vendas no cartão (Stripe e cartão nacional) e consulte transações e saldo direto do seu assistente de IA (Claude Code, Claude Desktop, Cursor e qualquer cliente MCP).
 
