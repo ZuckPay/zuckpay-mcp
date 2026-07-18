@@ -31,17 +31,17 @@ Servidor [MCP](https://modelcontextprotocol.io) oficial da **ZuckPay** — crie 
 
 ## Tools
 
-| Tool                   | O que faz                                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `createPixCharge`      | Cria cobrança PIX (copia-e-cola + QR Code + checkout hospedado). Suporta idempotência, split, webhook e UTMs |
-| `getTransactionStatus` | Consulta status por `transactionId` ou pelo seu `external_id_client` (PIX, SPEI e cartão)                    |
-| `createSpeiCashin`     | Cria cobrança SPEI em MXN e retorna a CLABE de 18 dígitos (México)                                           |
-| `createPayPalOrder`    | Cria ordem PayPal em 25 moedas e retorna o link de aprovação                                                 |
-| `capturePayPalOrder`   | Captura a ordem depois que o pagador aprova                                                                  |
+| Tool                   | O que faz                                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `createPixCharge`      | Cria cobrança PIX (copia-e-cola + QR Code + checkout hospedado). Suporta idempotência, split, webhook e UTMs    |
+| `getTransactionStatus` | Consulta status por `transactionId` ou pelo seu `external_id_client` (PIX, SPEI e cartão)                       |
+| `createSpeiCashin`     | Cria cobrança SPEI em MXN e retorna a CLABE de 18 dígitos (México)                                              |
+| `createPayPalOrder`    | Cria ordem PayPal em 25 moedas e retorna o link de aprovação                                                    |
+| `capturePayPalOrder`   | Captura a ordem depois que o pagador aprova                                                                     |
 | `getCardGateways`      | Mostra os gateways de cartão da conta — Stripe (internacional) e cartão nacional (BRL) — com as chaves públicas |
-| `listTransactions`     | Lista as transações da conta com filtros (status, tipo, método, período) e paginação por cursor              |
-| `getBalance`           | Saldos da conta (disponível, bloqueado em liberação, total) e limites de saque                               |
-| `createPixWithdraw`    | ⚠️ Saque PIX — **só existe com `ZUCKPAY_ENABLE_WITHDRAW=true`** (veja [Segurança](#segurança))               |
+| `listTransactions`     | Lista as transações da conta com filtros (status, tipo, método, período) e paginação por cursor                 |
+| `getBalance`           | Saldos da conta (disponível, bloqueado em liberação, total) e limites de saque                                  |
+| `createPixWithdraw`    | ⚠️ Saque PIX — **só existe com `ZUCKPAY_ENABLE_WITHDRAW=true`** (veja [Segurança](#segurança))                  |
 
 Extras: resource `zuckpay://docs/api` (referência da API + validação do webhook assinado) e prompt `criar-cobranca-pix`.
 
@@ -100,12 +100,12 @@ claude mcp add zuckpay \
 
 O MCP **acompanha** as vendas de cartão, mas **não cria** cobrança de cartão — e isso é proposital (veja [Segurança](#segurança)):
 
-| O que você quer fazer                       | Como fazer                                                                                                        |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Cobrar no cartão                            | Checkout hospedado ou link de pagamento da ZuckPay — o dado do cartão nunca passa pela IA                          |
-| Ver os gateways de cartão da conta          | `getCardGateways` — Stripe (internacional) e cartão nacional (BRL), com as chaves públicas de tokenização          |
-| Conferir se uma venda de cartão foi paga    | `getTransactionStatus` com o `transactionId` ou o seu `external_id_client`                                         |
-| Listar as vendas de cartão de um período    | `listTransactions` com `payment_method: credit_card`                                                               |
+| O que você quer fazer                        | Como fazer                                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Cobrar no cartão                             | Checkout hospedado ou link de pagamento da ZuckPay — o dado do cartão nunca passa pela IA                          |
+| Ver os gateways de cartão da conta           | `getCardGateways` — Stripe (internacional) e cartão nacional (BRL), com as chaves públicas de tokenização          |
+| Conferir se uma venda de cartão foi paga     | `getTransactionStatus` com o `transactionId` ou o seu `external_id_client`                                         |
+| Listar as vendas de cartão de um período     | `listTransactions` com `payment_method: credit_card`                                                               |
 | Ver quanto de cartão ainda está em liberação | `getBalance` — o saldo bloqueado inclui vendas de cartão aguardando o prazo da conta (ex.: D+8); PIX libera em D+0 |
 
 **Por que o MCP não cobra cartão?** PCI DSS: número e CVV jamais devem trafegar pelo contexto de um LLM. A tokenização acontece no navegador do pagador, dentro do checkout hospedado — e o MCP entra depois, para consultar status, listar vendas e conferir o saldo.
