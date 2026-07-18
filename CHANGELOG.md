@@ -6,6 +6,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- `VERSION` em `src/config.ts` estava hardcoded em `"0.2.0"` (não lida do
+  `package.json` porque o Dockerfile só copia `dist/` pro estágio final) —
+  o bump desta mesma versão esqueceu de atualizar essa constante, então
+  `/healthz` reportou "0.2.0" por 2 dias com o código já certo rodando.
 - `getCardGateways`: o resumo textual agora interpreta o formato real de
   `GET /v3/card/keys` (objeto com `stripe` e `nationalCard`) — antes dizia
   "nenhum gateway configurado" mesmo com Stripe e cartão nacional ativos.
