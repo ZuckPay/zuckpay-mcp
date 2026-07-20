@@ -1,6 +1,6 @@
 {
   "name": "zuckpay-mcp",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Servidor MCP oficial da ZuckPay — crie cobranças PIX, SPEI e PayPal e consulte transações direto do seu assistente de IA.",
   "license": "MIT",
   "repository": {

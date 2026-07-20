@@ -13,7 +13,7 @@
 // Atualizar junto com "version" no package.json a cada release (não há
 // verificação automática — esqueceram no bump pra 0.2.1, healthz reportou
 // 0.2.0 por 2 dias enquanto o código já estava certo).
-export const VERSION = "0.2.1";
+export const VERSION = "0.3.0";
 
 export const DEFAULT_BASE_URL = "https://www.zuckpay.com.br/conta";
 

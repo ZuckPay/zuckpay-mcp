@@ -23,13 +23,15 @@
 
 ---
 
-Servidor [MCP](https://modelcontextprotocol.io) oficial da **ZuckPay** — crie cobranças PIX, SPEI (México) e PayPal, acompanhe vendas no cartão (Stripe e cartão nacional) e consulte transações e saldo direto do seu assistente de IA (Claude Code, Claude Desktop, Cursor e qualquer cliente MCP).
+Servidor [MCP](https://modelcontextprotocol.io) oficial da **ZuckPay** — crie cobranças PIX, SPEI (México) e PayPal, acompanhe vendas no cartão (Stripe e cartão nacional), consulte transações e saldo, e gerencie sua conta (produtos, cursos, assinaturas, infrações, indique&ganhe e mais) direto do seu assistente de IA (Claude Code, Claude Desktop, Cursor e qualquer cliente MCP).
 
 - **Node puro** — funciona com `npx`/`node`, sem Bun nem build extra.
 - **Seguro por padrão** — credenciais só via variáveis de ambiente, máscara de segredos em toda saída, saque desabilitado por padrão, dados de cartão jamais trafegam pela IA.
 - **2 dependências de runtime** — `@modelcontextprotocol/sdk` e `zod`.
 
 ## Tools
+
+### Pagamentos
 
 | Tool                   | O que faz                                                                                                       |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -42,6 +44,27 @@ Servidor [MCP](https://modelcontextprotocol.io) oficial da **ZuckPay** — crie 
 | `listTransactions`     | Lista as transações da conta com filtros (status, tipo, método, período) e paginação por cursor                 |
 | `getBalance`           | Saldos da conta (disponível, bloqueado em liberação, total) e limites de saque                                  |
 | `createPixWithdraw`    | ⚠️ Saque PIX — **só existe com `ZUCKPAY_ENABLE_WITHDRAW=true`** (veja [Segurança](#segurança))                  |
+
+### Sua conta (somente leitura)
+
+Tudo escopado à conta autenticada — uma chave de seller nunca enxerga dado de outro seller, e dados de comprador (nome, e-mail, CPF, telefone) chegam **sempre mascarados** (`jo***@gmail.com`, `123.***.***-**`).
+
+| Tool                  | O que faz                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------- |
+| `getSalesToday`       | Resumo das vendas de hoje: total pago, quantidade, ticket médio, breakdown por método e pendentes |
+| `listProducts`        | Lista seus produtos (nome, preço, status, moeda, métodos de pagamento habilitados)                |
+| `getProduct`          | Detalha um produto pelo `id`                                                                      |
+| `listCourses`         | Lista seus cursos (área de membros): módulos, aulas e nº de alunos matriculados                   |
+| `listSubscriptions`   | Assinaturas da conta: produto, status (ativa/cancelada/inativa/pendente), valor, periodicidade    |
+| `listInfractions`     | Chargebacks e pedidos de reembolso (Infrações e MED), com status e prazos                         |
+| `getReferralStats`    | Seu Indique & Ganhe: total de indicados, comissões pendentes/liberadas e histórico                |
+| `getStore`            | Sua loja (vitrine): nome, slug, template, status de publicação e domínio                          |
+| `listAcquirerRoutes`  | Rotas de adquirente disponíveis pra sua conta, com taxa de conversão — as mesmas do painel        |
+| `listPaymentLinks`    | Seus links de pagamento (valor, método, views, status)                                            |
+| `listIntegrationKeys` | Metadados das suas chaves de API (nome, domínio, criação) — **nunca** o client_secret             |
+| `listWebhooks`        | Webhooks configurados na conta (URL, eventos, produtos, status)                                   |
+
+Criar/editar/apagar qualquer coisa por aqui **não existe ainda** — escrita é a próxima fase, sempre atrás de confirmação explícita. Ações sensíveis (revelar/rotacionar chave, excluir produto, publicar loja) ficam **só no painel**, por design.
 
 Extras: resource `zuckpay://docs/api` (referência da API + validação do webhook assinado) e prompt `criar-cobranca-pix`.
 
@@ -96,6 +119,14 @@ claude mcp add zuckpay \
 
 > "Lista minhas vendas de cartão pagas neste mês e diz quanto ainda está em liberação"
 
+> "Quanto eu vendi hoje? Divide por método de pagamento"
+
+> "Tenho algum chargeback ou pedido de reembolso aberto?"
+
+> "Como tá meu Indique & Ganhe? Quanto tenho de comissão pra liberar?"
+
+> "Lista minhas assinaturas ativas e me diz qual produto tem mais assinantes"
+
 ## Cartão: como o MCP se encaixa
 
 O MCP **acompanha** as vendas de cartão, mas **não cria** cobrança de cartão — e isso é proposital (veja [Segurança](#segurança)):
@@ -117,6 +148,7 @@ O MCP **acompanha** as vendas de cartão, mas **não cria** cobrança de cartão
 - **Saque é opt-in duplo**: a tool `createPixWithdraw` nem sequer é registrada sem `ZUCKPAY_ENABLE_WITHDRAW=true`; com ela, o schema ainda exige `confirm: true` e instrui o modelo a confirmar valor, chave e tipo com o usuário humano antes de chamar. Limites: R$ 50,00 a R$ 20.000,00 por saque, e o gateway valida o saldo disponível do vendedor antes de executar.
 - **Cartão**: a cobrança direta de cartão **não existe** neste MCP por design — PAN/CVV nunca devem passar pelo contexto de um LLM (PCI DSS). Só as chaves públicas são expostas; a cobrança acontece no checkout hospedado.
 - **Sem retry em dinheiro**: requisições POST nunca são repetidas automaticamente; somente `GET /pix/status` retenta uma única vez, e apenas em falha de rede.
+- **PII do comprador em barreira dupla**: o servidor já devolve nome/e-mail/CPF/telefone mascarados; ainda assim, as tools de conta varrem cada resposta atrás de PII crua (`assertNoRawPii`) e **falham em vez de vazar** se o backend algum dia regredir. Campos como `refund_token` são bloqueados por nome.
 - **Validação estrita**: toda entrada passa por schemas zod `.strict()` (campos desconhecidos são rejeitados) antes de qualquer chamada; o corpo enviado à API é montado campo a campo (allowlist).
 - Encontrou uma vulnerabilidade? Veja [SECURITY.md](SECURITY.md).
 
