@@ -51,7 +51,9 @@ Resposta: \`transactionId\`, \`qrcode\` (copia-e-cola), \`qrcode_image\`,
 
 ## Webhook (postback) assinado
 
-Quando a conta tem webhook secret gerado, cada postback inclui:
+Gere o webhook secret em https://www.zuckpay.com.br/conta/keys.php (card
+"Webhook Secret" — é diferente do \`client_secret\`). Quando a conta tem
+webhook secret gerado, cada postback inclui:
 
 \`\`\`
 X-ZuckPay-Timestamp: <unix_ts>
