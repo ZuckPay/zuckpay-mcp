@@ -126,6 +126,8 @@ export function registerProductTools(server: McpServer, client: ZuckPayClient): 
       inputSchema: listProductsShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },
@@ -141,6 +143,8 @@ export function registerProductTools(server: McpServer, client: ZuckPayClient): 
       inputSchema: getProductShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

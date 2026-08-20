@@ -105,6 +105,8 @@ export function registerIntegrationTools(server: McpServer, client: ZuckPayClien
       inputSchema: listIntegrationKeysShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },
@@ -121,6 +123,8 @@ export function registerIntegrationTools(server: McpServer, client: ZuckPayClien
       inputSchema: listWebhooksShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

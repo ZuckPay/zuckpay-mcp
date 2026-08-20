@@ -94,6 +94,8 @@ export function registerSalesTools(server: McpServer, client: ZuckPayClient): vo
       inputSchema: getSalesTodayShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

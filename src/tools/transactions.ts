@@ -201,6 +201,8 @@ export function registerTransactionTools(server: McpServer, client: ZuckPayClien
       inputSchema: listTransactionsShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

@@ -79,6 +79,8 @@ export function registerAcquirerTools(server: McpServer, client: ZuckPayClient):
       inputSchema: listAcquirerRoutesShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

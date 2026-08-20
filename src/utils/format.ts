@@ -40,6 +40,29 @@ export function pickString(obj: unknown, key: string): string | undefined {
 }
 
 /** Extrai número (aceita string numérica) de um objeto desconhecido. */
+/**
+ * Lê um booleano da resposta da API. Aceita as formas que o PHP emite pro
+ * mesmo campo conforme o caminho (`true`, `"true"`, `1`) — tratar `1` como
+ * ausente faria a flag de idempotência passar batida.
+ */
+export function pickBoolean(obj: unknown, key: string): boolean | undefined {
+  if (typeof obj !== "object" || obj === null) {
+    return undefined;
+  }
+  // eslint-disable-next-line security/detect-object-injection -- `key` é literal fixo do nosso código
+  const value = (obj as Record<string, unknown>)[key];
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (value === 1 || value === "1" || value === "true") {
+    return true;
+  }
+  if (value === 0 || value === "0" || value === "false") {
+    return false;
+  }
+  return undefined;
+}
+
 export function pickNumber(obj: unknown, key: string): number | undefined {
   if (typeof obj !== "object" || obj === null) {
     return undefined;

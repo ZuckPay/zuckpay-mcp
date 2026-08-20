@@ -47,12 +47,21 @@ describe("gate da tool de saque", () => {
     expect(registered).not.toContain("createPixWithdraw");
   });
 
-  it("com ZUCKPAY_ENABLE_WITHDRAW=true, createPixWithdraw é registrada com aviso", () => {
+  // A flag deixou de registrar a tool: /v3/pix/withdraw exige PIN do vendedor e
+  // o PIN não pode trafegar pela conversa do assistente. Ver src/tools/index.ts.
+  it("NEM com ZUCKPAY_ENABLE_WITHDRAW=true a tool volta — só avisa", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { registered, server } = stubServer();
     registerAllTools(server, stubClient, makeConfig(true));
 
-    expect(registered).toContain("createPixWithdraw");
-    expect(errSpy).toHaveBeenCalled();
+    expect(registered).not.toContain("createPixWithdraw");
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("não tem mais efeito"));
+  });
+
+  it("nenhuma tool registrada movimenta saldo pra fora da conta", () => {
+    const { registered, server } = stubServer();
+    registerAllTools(server, stubClient, makeConfig(true));
+
+    expect(registered.filter((n) => /withdraw|saque|payout|transfer/i.test(n))).toEqual([]);
   });
 });
