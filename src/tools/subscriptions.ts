@@ -100,6 +100,8 @@ export function registerSubscriptionTools(server: McpServer, client: ZuckPayClie
       inputSchema: listSubscriptionsShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

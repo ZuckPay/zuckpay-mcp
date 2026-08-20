@@ -88,6 +88,8 @@ export function registerCourseTools(server: McpServer, client: ZuckPayClient): v
       inputSchema: listCoursesShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

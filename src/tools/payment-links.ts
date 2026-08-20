@@ -86,6 +86,8 @@ export function registerPaymentLinkTools(server: McpServer, client: ZuckPayClien
       inputSchema: listPaymentLinksShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

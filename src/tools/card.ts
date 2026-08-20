@@ -136,6 +136,8 @@ export function registerCardTools(server: McpServer, client: ZuckPayClient): voi
         "Somente leitura — a cobrança direta de cartão não é exposta via MCP por segurança (PCI); use o checkout hospedado da ZuckPay.",
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

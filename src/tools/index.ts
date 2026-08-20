@@ -1,6 +1,20 @@
 /**
- * Registro central das tools. A tool de saque só existe quando o operador
- * habilita explicitamente via ZUCKPAY_ENABLE_WITHDRAW=true.
+ * Registro central das tools.
+ *
+ * A tool de saque NÃO é mais registrada, nem com ZUCKPAY_ENABLE_WITHDRAW=true.
+ * Motivo: /v3/pix/withdraw passou a exigir PIN obrigatório do vendedor
+ * (withdraw.php: `if (empty($pin)) jsonResponse(400, "PIN obrigatório para
+ * saques.")`), e o MCP nunca enviou esse campo — toda chamada morria em 400.
+ *
+ * A correção NÃO é adicionar um parâmetro `pin` ao schema: isso faria o PIN de
+ * saque do vendedor trafegar como texto pela conversa do assistente, ficar no
+ * histórico do cliente MCP e possivelmente no log do provedor do modelo. O PIN
+ * existe justamente para ser o fator que uma automação não tem.
+ *
+ * Habilitar saque por aqui de novo exige um mecanismo próprio no gateway
+ * (ex.: token de saque pré-autorizado no painel, com escopo e validade), não
+ * o PIN do humano. Até lá, saque é feito no painel. Ver src/tools/withdraw.ts,
+ * que segue versionado e testado para esse dia.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -22,7 +36,6 @@ import { registerSpeiTools } from "./spei.js";
 import { registerStoreTools } from "./store.js";
 import { registerSubscriptionTools } from "./subscriptions.js";
 import { registerTransactionTools } from "./transactions.js";
-import { registerWithdrawTool } from "./withdraw.js";
 
 export function registerAllTools(server: McpServer, client: ZuckPayClient, config: Config): void {
   registerPixTools(server, client);
@@ -42,9 +55,10 @@ export function registerAllTools(server: McpServer, client: ZuckPayClient, confi
   registerIntegrationTools(server, client);
   registerPaymentLinkTools(server, client);
   if (config.enableWithdraw) {
-    registerWithdrawTool(server, client);
     console.error(
-      "[zuckpay-mcp] AVISO: tool de saque PIX habilitada via ZUCKPAY_ENABLE_WITHDRAW=true.",
+      "[zuckpay-mcp] AVISO: ZUCKPAY_ENABLE_WITHDRAW=true não tem mais efeito. " +
+        "A tool de saque foi desativada porque /v3/pix/withdraw exige PIN do vendedor, " +
+        "e o PIN não deve passar pela conversa do assistente. Faça saques pelo painel ZuckPay.",
     );
   }
 }

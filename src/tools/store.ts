@@ -61,6 +61,8 @@ export function registerStoreTools(server: McpServer, client: ZuckPayClient): vo
       inputSchema: getStoreShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

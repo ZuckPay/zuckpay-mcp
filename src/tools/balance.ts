@@ -96,6 +96,8 @@ export function registerBalanceTool(server: McpServer, client: ZuckPayClient): v
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

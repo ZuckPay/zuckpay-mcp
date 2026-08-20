@@ -12,7 +12,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZuckPayClient } from "../client.js";
-import { formatMoney, pickNumber, pickString, statusLabel } from "../utils/format.js";
+import { formatMoney, pickBoolean, pickNumber, pickString, statusLabel } from "../utils/format.js";
 import { okResult, safeRun, type ToolResult } from "../utils/result.js";
 import {
   cpfSchema,
@@ -115,7 +115,23 @@ async function handleCreatePixCharge(client: ZuckPayClient, args: unknown): Prom
     const qrcodeImage = pickString(response, "qrcode_image");
     const checkoutUrl = pickString(response, "checkout_url");
 
-    const lines: string[] = ["Cobrança PIX criada ✅", ""];
+    // A API devolve `idempotency: true` quando reaproveitou uma cobrança
+    // PENDING com o mesmo external_id_client (qrcode.php faz GET_LOCK + SELECT
+    // antes de inserir). Sem contar isso ao modelo, um retry parece uma segunda
+    // cobrança criada e ele pode "corrigir" cancelando a única que existe.
+    const reused = pickBoolean(response, "idempotency") === true;
+
+    const lines: string[] = [
+      reused ? "Cobrança PIX já existente ♻️" : "Cobrança PIX criada ✅",
+      "",
+    ];
+    if (reused) {
+      lines.push(
+        "Nenhuma cobrança nova foi criada: já havia uma pendente com este " +
+          "external_id_client e ela foi reaproveitada. Use os dados abaixo.",
+        "",
+      );
+    }
     lines.push(`• Transação: ${transactionId ?? "(não informada)"}`);
     lines.push(
       `• Valor: ${formatMoney(input.valor)}` +
@@ -123,6 +139,11 @@ async function handleCreatePixCharge(client: ZuckPayClient, args: unknown): Prom
     );
     if (input.external_id_client !== undefined) {
       lines.push(`• ID externo: ${input.external_id_client}`);
+    } else {
+      lines.push(
+        "• ID externo: (nenhum) — esta cobrança NÃO tem proteção contra duplicidade. " +
+          "Se a chamada falhar ou demorar, não repita sem antes conferir em getTransactionStatus.",
+      );
     }
     if (qrcode !== undefined) {
       lines.push("", "PIX copia-e-cola:", "```", qrcode, "```");
@@ -187,8 +208,11 @@ export function registerPixTools(server: McpServer, client: ZuckPayClient): void
       title: "Criar cobrança PIX",
       description:
         "Cria uma cobrança PIX na ZuckPay e retorna o código copia-e-cola, a imagem do QR Code e o link de checkout hospedado. " +
-        "Suporta idempotência (external_id_client), split de receita entre contas, webhook de confirmação (urlnoty) e parâmetros de rastreio (UTMs). " +
-        "Valor em reais com até 2 casas decimais.",
+        "Suporta split de receita entre contas, webhook de confirmação (urlnoty) e parâmetros de rastreio (UTMs). " +
+        "Valor em reais com até 2 casas decimais. " +
+        "SEMPRE informe external_id_client: é a chave de idempotência — a API reaproveita a cobrança pendente de mesmo valor de chave " +
+        "em vez de criar uma segunda. Se precisar repetir a chamada após erro, timeout ou resposta perdida, REUSE exatamente o mesmo " +
+        "external_id_client; gerar um novo cria uma cobrança duplicada para o mesmo cliente.",
       inputSchema: createPixChargeShape,
       annotations: {
         readOnlyHint: false,
@@ -210,6 +234,8 @@ export function registerPixTools(server: McpServer, client: ZuckPayClient): void
       inputSchema: getTransactionStatusShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

@@ -1,5 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConfigError, DEFAULT_BASE_URL, loadConfig } from "../src/config.js";
+import { ConfigError, DEFAULT_BASE_URL, loadConfig, VERSION } from "../src/config.js";
 
 const BASE_ENV = {
   ZUCKPAY_CLIENT_ID: "client_abc123",
@@ -65,5 +66,18 @@ describe("loadConfig", () => {
     );
     expect(loadConfig({ ...BASE_ENV, ZUCKPAY_ENABLE_WITHDRAW: "1" }).enableWithdraw).toBe(false);
     expect(loadConfig({ ...BASE_ENV, ZUCKPAY_ENABLE_WITHDRAW: "yes" }).enableWithdraw).toBe(false);
+  });
+});
+
+describe("VERSION", () => {
+  // A constante é hardcoded porque o estágio final do Dockerfile só copia
+  // dist/ — package.json não existe em runtime. Já divergiu uma vez e
+  // /healthz reportou a versão errada por 2 dias; este teste fecha isso.
+  it("está em sincronia com a version do package.json", async () => {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- caminho fixo relativo a este arquivo de teste
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      version: string;
+    };
+    expect(VERSION).toBe(pkg.version);
   });
 });

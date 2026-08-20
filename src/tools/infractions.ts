@@ -131,6 +131,8 @@ export function registerInfractionTools(server: McpServer, client: ZuckPayClient
       inputSchema: listInfractionsShape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
       },
     },

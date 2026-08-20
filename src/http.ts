@@ -11,17 +11,30 @@
  * Segurança:
  * - Credencial só via header Basic; NUNCA em URL/query e NUNCA logada
  *   (o logger de acesso registra método/rota/status/duração/IP, mais nada).
- * - Rate limit por IP (janela fixa) com resposta 429 + Retry-After.
- * - Body limitado a 256 KB (413 acima disso), timeouts anti-slowloris.
+ * - Rate limit por IP E por credencial (janela fixa), aplicado a TODAS as
+ *   rotas, com 429 + Retry-After e teto de memória nos contadores.
+ * - Batch JSON-RPC recusado: a contagem do rate limit é por request HTTP, e
+ *   um array no topo multiplicaria as chamadas por request (medido: 406x).
+ * - Body limitado a 256 KB (413 acima disso), timeouts anti-slowloris e teto
+ *   de conexões simultâneas.
  * - Sem CORS: cliente MCP não é browser; nenhum header Allow-Origin é emitido.
  * - 401 uniforme sem eco de credencial; erros internos sem stack trace.
- * - Saque (createPixWithdraw) NÃO é exposto no modo hospedado a menos que o
- *   OPERADOR do serviço suba com ZUCKPAY_ENABLE_WITHDRAW=true — e mesmo
- *   assim a tool continua exigindo confirm:true por chamada.
+ * - Saque não é exposto: a tool foi removida do registro (ver tools/index.ts).
+ *
+ * ATENÇÃO ao modelo de ameaça: o portão de auth valida o FORMATO do header
+ * Basic, não a credencial — verificar exigiria uma ida à API por request. Com
+ * isso, qualquer Basic bem-formado alcança initialize/tools/list/prompts (a
+ * lista de tools é pública: o pacote é open source). O que contém isso é o
+ * rate limit por IP. E rate limit em processo NÃO é proteção contra DDoS
+ * volumétrico nem contra ataque distribuído: isso é trabalho da borda
+ * (Cloudflare/WAF) e o limite vale POR INSTÂNCIA — com N réplicas, o teto
+ * efetivo é N x MCP_RATE_LIMIT_PER_MINUTE.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createClient } from "./client.js";
@@ -33,6 +46,16 @@ import { sanitizeText } from "./utils/errors.js";
 
 export const MAX_BODY_BYTES = 256 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
+
+/** Teto de chaves distintas nos mapas de rate limit (ver createRateLimiter). */
+export const MAX_RATE_LIMIT_KEYS = 20_000;
+
+/**
+ * Multiplicador do limite por credencial sobre o limite por IP: um mesmo
+ * tenant pode legitimamente chegar de vários IPs (equipe, serverless), mas
+ * não pode consumir o serviço compartilhado inteiro sozinho.
+ */
+const CREDENTIAL_LIMIT_FACTOR = 4;
 
 export interface BasicCredentials {
   readonly clientId: string;
@@ -72,25 +95,20 @@ export function parseBasicAuth(header: string | undefined): BasicCredentials | u
   }
 }
 
-/** Rate limiter de janela fixa por chave (IP). Sem dependências, O(1) por hit. */
-export function createRateLimiter(limit: number, windowMs: number = RATE_LIMIT_WINDOW_MS) {
+/**
+ * Rate limiter de janela fixa por chave. Sem dependências, O(1) por hit.
+ *
+ * O mapa tem TETO (`maxKeys`): sem ele, uma chave controlável pelo cliente
+ * (ver `clientIp`) permite inflar a tabela até estourar a memória do processo.
+ * Cheio, tenta um sweep oportunista e só então recusa — negar request é
+ * degradação temporária, OOM derruba o serviço inteiro.
+ */
+export function createRateLimiter(
+  limit: number,
+  windowMs: number = RATE_LIMIT_WINDOW_MS,
+  maxKeys: number = MAX_RATE_LIMIT_KEYS,
+) {
   const hits = new Map<string, { count: number; windowStart: number }>();
-
-  function check(key: string, now: number = Date.now()): { ok: boolean; retryAfterSec: number } {
-    const entry = hits.get(key);
-    if (entry === undefined || now - entry.windowStart >= windowMs) {
-      hits.set(key, { count: 1, windowStart: now });
-      return { ok: true, retryAfterSec: 0 };
-    }
-    entry.count += 1;
-    if (entry.count > limit) {
-      return {
-        ok: false,
-        retryAfterSec: Math.max(1, Math.ceil((entry.windowStart + windowMs - now) / 1000)),
-      };
-    }
-    return { ok: true, retryAfterSec: 0 };
-  }
 
   /** Remove janelas expiradas (chamado por timer, não no hot path). */
   function sweep(now: number = Date.now()): void {
@@ -101,18 +119,120 @@ export function createRateLimiter(limit: number, windowMs: number = RATE_LIMIT_W
     }
   }
 
+  function check(key: string, now: number = Date.now()): { ok: boolean; retryAfterSec: number } {
+    const entry = hits.get(key);
+
+    if (entry !== undefined && now - entry.windowStart < windowMs) {
+      entry.count += 1;
+      if (entry.count > limit) {
+        return {
+          ok: false,
+          retryAfterSec: Math.max(1, Math.ceil((entry.windowStart + windowMs - now) / 1000)),
+        };
+      }
+      return { ok: true, retryAfterSec: 0 };
+    }
+
+    // Janela nova. Se a tabela está no teto, limpa o que expirou antes de crescer.
+    if (entry === undefined && hits.size >= maxKeys) {
+      sweep(now);
+      if (hits.size >= maxKeys) {
+        return { ok: false, retryAfterSec: Math.max(1, Math.ceil(windowMs / 1000)) };
+      }
+    }
+
+    hits.set(key, { count: 1, windowStart: now });
+    return { ok: true, retryAfterSec: 0 };
+  }
+
   return { check, sweep, size: () => hits.size };
 }
 
-function clientIp(req: IncomingMessage, trustProxy: boolean): string {
-  if (trustProxy) {
-    const xff = req.headers["x-forwarded-for"];
-    const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
-    if (first !== undefined && first !== "" && first.length <= 45) {
-      return first;
+/**
+ * Normaliza um hop de X-Forwarded-For para um IP válido, ou undefined.
+ * Aceita as formas que proxies emitem na prática: "1.2.3.4", "1.2.3.4:5678",
+ * "[::1]" e "[::1]:5678". Qualquer outra coisa é texto arbitrário do cliente
+ * e não pode virar chave de rate limit.
+ */
+export function normalizeForwardedHop(raw: string): string | undefined {
+  const value = raw.trim();
+  if (value === "" || value.length > 45) {
+    return undefined;
+  }
+  if (isIP(value) !== 0) {
+    return value;
+  }
+  // Parsing sem regex de propósito: isto roda em header controlado pelo
+  // cliente, e `isIP` do node já é o validador de verdade. Um regex aqui só
+  // adicionaria superfície de backtracking sem decidir nada melhor.
+  if (value.startsWith("[")) {
+    const close = value.indexOf("]");
+    if (close <= 1) {
+      return undefined;
+    }
+    const inner = value.slice(1, close);
+    const rest = value.slice(close + 1);
+    if ((rest === "" || isPortSuffix(rest)) && isIP(inner) === 6) {
+      return inner;
+    }
+    return undefined;
+  }
+  // Sem colchete, só IPv4 aparece com porta ("1.2.3.4:5678").
+  const colon = value.lastIndexOf(":");
+  if (colon > 0 && isPortSuffix(value.slice(colon))) {
+    const host = value.slice(0, colon);
+    if (isIP(host) === 4) {
+      return host;
     }
   }
-  return req.socket.remoteAddress ?? "unknown";
+  return undefined;
+}
+
+/** true para ":" seguido de 1–5 dígitos. */
+function isPortSuffix(value: string): boolean {
+  if (!value.startsWith(":") || value.length < 2 || value.length > 6) {
+    return false;
+  }
+  for (let i = 1; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 48 || code > 57) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * IP do cliente para fins de rate limit.
+ *
+ * GOTCHA: cada proxy ANEXA à direita o peer de quem recebeu, então com N
+ * proxies confiáveis na frente o IP real é o N-ésimo a contar do FIM. Tudo à
+ * esquerda disso é string que o próprio cliente escreveu — ler `xff[0]`, como
+ * fazíamos, entrega a chave do rate limit pro atacante: um valor diferente por
+ * request zera a janela toda vez e ainda infla o mapa de contadores.
+ *
+ * Sem `trustProxy`, o único valor confiável é o socket.
+ */
+export function clientIp(req: IncomingMessage, trustProxy: boolean, hops: number = 1): string {
+  const socketIp = req.socket.remoteAddress ?? "unknown";
+  if (!trustProxy) {
+    return socketIp;
+  }
+  const raw = req.headers["x-forwarded-for"];
+  const chain = (Array.isArray(raw) ? raw.join(",") : (raw ?? ""))
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+  if (chain.length === 0) {
+    return socketIp;
+  }
+  // Menos hops que o esperado = request não passou pela cadeia inteira;
+  // cai pro socket em vez de aceitar o que o cliente mandou.
+  const index = chain.length - hops;
+  if (index < 0) {
+    return socketIp;
+  }
+  return normalizeForwardedHop(chain.at(index) ?? "") ?? socketIp;
 }
 
 function sendJson(
@@ -181,7 +301,9 @@ interface HttpEnv {
   readonly baseUrl: string;
   readonly enableWithdraw: boolean;
   readonly trustProxy: boolean;
+  readonly trustProxyHops: number;
   readonly rateLimit: number;
+  readonly maxConnections: number;
 }
 
 function loadHttpEnv(env: NodeJS.ProcessEnv = process.env): HttpEnv {
@@ -193,19 +315,40 @@ function loadHttpEnv(env: NodeJS.ProcessEnv = process.env): HttpEnv {
   if (!Number.isInteger(rateLimit) || rateLimit < 1 || rateLimit > 10_000) {
     throw new ConfigError("MCP_RATE_LIMIT_PER_MINUTE inválido (1 a 10000).");
   }
+  // Quantos proxies confiáveis existem na frente. Errar pra mais aceitaria um
+  // hop forjado pelo cliente, então o default é o mínimo (1: o próprio edge).
+  const trustProxyHops = Number.parseInt(env.MCP_TRUST_PROXY_HOPS ?? "1", 10);
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 1 || trustProxyHops > 10) {
+    throw new ConfigError("MCP_TRUST_PROXY_HOPS inválido (1 a 10).");
+  }
+  const maxConnections = Number.parseInt(env.MCP_MAX_CONNECTIONS ?? "512", 10);
+  if (!Number.isInteger(maxConnections) || maxConnections < 8 || maxConnections > 100_000) {
+    throw new ConfigError("MCP_MAX_CONNECTIONS inválido (8 a 100000).");
+  }
   return {
     port,
     baseUrl: resolveBaseUrl(env),
     enableWithdraw: (env.ZUCKPAY_ENABLE_WITHDRAW ?? "").trim().toLowerCase() === "true",
     trustProxy: (env.MCP_TRUST_PROXY ?? "").trim().toLowerCase() === "true",
+    trustProxyHops,
     rateLimit,
+    maxConnections,
   };
+}
+
+/**
+ * Chave de rate limit derivada da credencial. Hash truncado, nunca o valor
+ * cru: a chave vive num Map em memória e aparece em heap dump/core dump.
+ */
+export function credentialKey(clientId: string): string {
+  return createHash("sha256").update(clientId).digest("base64url").slice(0, 22);
 }
 
 async function handleMcpPost(
   req: IncomingMessage,
   res: ServerResponse,
   httpEnv: HttpEnv,
+  credentialLimiter: ReturnType<typeof createRateLimiter>,
 ): Promise<void> {
   const credentials = parseBasicAuth(req.headers.authorization);
   if (credentials === undefined) {
@@ -219,6 +362,20 @@ async function handleMcpPost(
     return;
   }
 
+  // Rate limit por credencial, além do por IP: um tenant vindo de mil IPs
+  // (serverless, VPN) ainda não consome o serviço compartilhado sozinho.
+  const credentialVerdict = credentialLimiter.check(credentialKey(credentials.clientId));
+  if (!credentialVerdict.ok) {
+    jsonRpcError(
+      res,
+      429,
+      -32000,
+      "Limite de requisições desta credencial atingido. Tente novamente em breve.",
+      { "Retry-After": String(credentialVerdict.retryAfterSec) },
+    );
+    return;
+  }
+
   const raw = await readBody(req, res);
   if (raw === undefined) {
     return; // já respondido (413) ou conexão morreu
@@ -228,6 +385,27 @@ async function handleMcpPost(
     parsedBody = raw === "" ? undefined : JSON.parse(raw);
   } catch {
     jsonRpcError(res, 400, -32700, "Body não é JSON válido.");
+    return;
+  }
+
+  // Batch JSON-RPC (array no topo) é RECUSADO.
+  //
+  // O MCP removeu batching na revisão 2025-06-18, mas o transporte da SDK
+  // ainda processa arrays — e um batch quebra o rate limit inteiro, porque a
+  // contagem é por REQUEST HTTP e não por chamada. Medido nesta versão antes
+  // do fix: 249 KB de body com 5.000 entradas devolveram 101 MB em 3,7s
+  // valendo 1 hit no limiter (amplificação de 406x), e o portão de auth não
+  // verifica a credencial contra a API — qualquer Basic bem-formado chega
+  // aqui. Um IP sozinho saturava CPU e banda do serviço; com credencial
+  // válida seriam 5.000 chamadas à API ZuckPay num único POST.
+  if (Array.isArray(parsedBody)) {
+    jsonRpcError(
+      res,
+      400,
+      -32600,
+      "Batch JSON-RPC não é suportado: envie uma chamada por requisição. " +
+        "(Batching foi removido do MCP na revisão 2025-06-18.)",
+    );
     return;
   }
 
@@ -276,7 +454,11 @@ export function startHttpServer(
 ): ReturnType<typeof createServer> {
   const httpEnv = loadHttpEnv(env);
   const limiter = createRateLimiter(httpEnv.rateLimit);
-  const sweepTimer = setInterval(() => limiter.sweep(), RATE_LIMIT_WINDOW_MS);
+  const credentialLimiter = createRateLimiter(httpEnv.rateLimit * CREDENTIAL_LIMIT_FACTOR);
+  const sweepTimer = setInterval(() => {
+    limiter.sweep();
+    credentialLimiter.sweep();
+  }, RATE_LIMIT_WINDOW_MS);
   sweepTimer.unref();
 
   if (httpEnv.enableWithdraw) {
@@ -291,13 +473,23 @@ export function startHttpServer(
     const started = Date.now();
     const method = req.method ?? "GET";
     const path = (req.url ?? "/").split("?")[0] ?? "/";
-    const ip = clientIp(req, httpEnv.trustProxy);
+    const ip = clientIp(req, httpEnv.trustProxy, httpEnv.trustProxyHops);
 
     res.on("finish", () => {
       console.error(
         `[zuckpay-mcp:http] ${method} ${path} ${res.statusCode} ${Date.now() - started}ms ip=${ip}`,
       );
     });
+
+    // Rate limit ANTES do roteamento: antes ele só cobria POST /mcp, então
+    // /healthz e qualquer 404 aceitavam flood sem nenhum teto.
+    const verdict = limiter.check(ip);
+    if (!verdict.ok) {
+      jsonRpcError(res, 429, -32000, "Limite de requisições atingido. Tente novamente em breve.", {
+        "Retry-After": String(verdict.retryAfterSec),
+      });
+      return;
+    }
 
     if (path === "/healthz" && method === "GET") {
       sendJson(res, 200, { status: "ok", name: "zuckpay-mcp", version: VERSION });
@@ -315,17 +507,15 @@ export function startHttpServer(
       return;
     }
 
-    const verdict = limiter.check(ip);
-    if (!verdict.ok) {
-      jsonRpcError(res, 429, -32000, "Limite de requisições atingido. Tente novamente em breve.", {
-        "Retry-After": String(verdict.retryAfterSec),
-      });
-      return;
-    }
-
-    void handleMcpPost(req, res, httpEnv).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`[zuckpay-mcp:http] erro não tratado: ${sanitizeText(message)}`);
+    void handleMcpPost(req, res, httpEnv, credentialLimiter).catch((err: unknown) => {
+      // Só o NOME do erro: o redactor por tenant vive dentro de handleMcpPost
+      // (é construído com as credenciais daquele request) e não existe aqui.
+      // Logar `err.message` sem ele é um caminho de vazamento de credencial —
+      // este catch é a rede de segurança, o diagnóstico útil já saiu redigido
+      // lá dentro.
+      console.error(
+        `[zuckpay-mcp:http] erro não tratado (${err instanceof Error ? err.name : "desconhecido"})`,
+      );
       if (!res.headersSent) {
         jsonRpcError(res, 500, -32603, "Erro interno do servidor.");
       }
@@ -335,6 +525,26 @@ export function startHttpServer(
   // Anti-slowloris: headers em 10s, request completo em 60s.
   server.headersTimeout = 10_000;
   server.requestTimeout = 60_000;
+  // O rate limit conta REQUESTS; sockets abertos que nunca completam um
+  // request não passam por ele. Sem teto, dá pra prender o processo só
+  // abrindo conexões e segurando cada uma por headersTimeout.
+  server.maxConnections = httpEnv.maxConnections;
+
+  // Sem estes handlers, o comportamento padrão do Node imprime a STACK
+  // COMPLETA em stderr — que pode conter credencial de um tenant. Aqui só o
+  // nome do erro sai; não há redactor global em modo multi-tenant, e sair é
+  // mais seguro que seguir com estado possivelmente corrompido (o supervisor
+  // reinicia). Erros de request já são tratados e redigidos em handleMcpPost.
+  process.on("uncaughtException", (err: Error) => {
+    console.error(`[zuckpay-mcp:http] exceção não capturada (${err.name}) — encerrando.`);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason: unknown) => {
+    console.error(
+      `[zuckpay-mcp:http] rejeição não tratada (${reason instanceof Error ? reason.name : "desconhecida"}) — encerrando.`,
+    );
+    process.exit(1);
+  });
 
   server.listen(httpEnv.port, () => {
     console.error(
